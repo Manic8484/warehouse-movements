@@ -508,11 +508,12 @@ def board():
 
     timed_items, tba_items = [], []
     for r in rows:
-        status_class = "complete" if r["completed_at"] else (
+        direction_class = (
             "outbound" if r["movement_type"] == "OUTBOUND"
             else "inbound" if r["movement_type"] == "INBOUND"
             else "mixed"
         )
+        state_class = "complete" if r["completed_at"] else ""
 
         route = routes.get(r["job_ref"], [])
         display_dt = r["warehouse_required_from"]
@@ -546,8 +547,8 @@ def board():
         # Keep the movement near the meaningful part of the day instead of in a
         # detached TBA strip. If no stop timing is available, use booked_at.
         if display_dt is None and r["booked_at"] is not None:
-            display_dt = r["booked_at"]
-            anchor_label = "TBA"
+            display_dt = r["booked_at"] + timedelta(hours=2)
+            anchor_label = None
             time_confidence = "TBA"
 
         modal_route = [{
@@ -563,7 +564,9 @@ def board():
 
         item = {
             "id": r["id"], "job_ref": r["job_ref"], "warehouse_stop_id": r["warehouse_stop_id"],
-            "movement_type": r["movement_type"], "status_class": status_class,
+            "movement_type": r["movement_type"],
+            "direction_class": direction_class,
+            "state_class": state_class,
             "vehicle": r["vehicle"] or "?", "account": r["account"] or "",
             "agent_callsign": r["agent_callsign"], "goods": r["goods"],
             "booked_at": r["booked_at"].isoformat() if r["booked_at"] else None,

@@ -37,7 +37,7 @@ table{width:100%;border-collapse:collapse;margin-top:16px;font-size:13px}th,td{p
   <div class="timeline">
     {% for t in ticks %}<div class="grid" style="left:{{ t.left_pct }}%"></div><div class="tick" style="left:{{ t.left_pct }}%">{{ t.label }}</div>{% endfor %}
     {% for item in timed_items %}
-      <div class="card {{ item.status_class }} {% if item.time_confidence == 'ESTIMATED' %}estimated{% elif item.time_confidence == 'TBA' %}tba-time{% endif %}"
+      <div class="card {{ item.direction_class }} {{ item.state_class }} {% if item.time_confidence == 'ESTIMATED' %}estimated{% elif item.time_confidence == 'TBA' %}tba-time{% endif %}"
            style="left:{{ item.left_pct }}%;width:{{ item.width_pct }}%;top:{{ 40 + (loop.index0 % 7)*72 }}px"
            onclick='openDetails({{ item|tojson }})'>
         <strong>{{ item.vehicle }}</strong>
