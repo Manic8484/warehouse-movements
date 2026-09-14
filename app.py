@@ -196,7 +196,15 @@ def derive_movement_type(stops: list[dict], index: int) -> str:
 
 @app.get("/health")
 def health():
-    return jsonify({"ok": True, "service": "warehouse-movements"})
+    return jsonify({
+        "ok": True,
+        "service": "warehouse-movements",
+        "db_name": DB_NAME,
+        "db_user": DB_USER,
+        "instance_connection_name": INSTANCE_CONNECTION_NAME,
+        "db_password_set": bool(DB_PASSWORD),
+        "ingest_token_set": bool(INGEST_TOKEN),
+    })
 
 
 @app.post("/warehouse-movement-email")
