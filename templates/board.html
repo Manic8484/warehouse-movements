@@ -1,0 +1,50 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Warehouse Movements</title>
+<style>
+body{margin:0;font-family:Arial,sans-serif;background:#f3f4f6;color:#17202a}
+header{display:flex;justify-content:space-between;align-items:center;background:white;padding:14px 18px;border-bottom:1px solid #ddd;position:sticky;top:0;z-index:5}
+h1{margin:0;font-size:24px}.controls a{margin-left:6px;padding:7px 10px;border:1px solid #ccc;border-radius:6px;text-decoration:none;color:#222;background:white}
+.wrap{padding:18px}.legend{display:flex;gap:18px;margin-bottom:12px;font-size:13px}.sw{display:inline-block;width:14px;height:14px;border-radius:3px;margin-right:5px;vertical-align:-2px}
+.timeline{position:relative;height:560px;background:white;border:1px solid #d8dde5;border-radius:10px;overflow:hidden}
+.grid{position:absolute;top:0;bottom:0;border-left:1px solid #e4e7ec}.tick{position:absolute;top:4px;transform:translateX(-50%);font-size:11px;color:#667085}
+.card{position:absolute;transform:translateX(-50%);width:180px;min-height:62px;border-radius:8px;padding:8px 10px;box-shadow:0 1px 4px rgba(0,0,0,.16);cursor:pointer}
+.card strong{display:block;font-size:18px}.card small{display:block;margin-top:3px;font-size:12px}
+.outbound{background:#d9e8ff}.inbound{background:#ffe6c7}.mixed{background:#eadcff}.complete{background:#d7f2da}
+.tba{margin-top:16px;background:white;border:1px solid #d8dde5;border-radius:10px;padding:12px}.tba-row{display:flex;gap:10px;flex-wrap:wrap}.tba .card{position:relative;transform:none;left:auto!important;top:auto!important}
+dialog{border:0;border-radius:10px;width:min(760px,90vw);padding:0}.mh{display:flex;justify-content:space-between;padding:14px 16px;border-bottom:1px solid #eee}.mb{padding:16px}.close{border:0;background:none;font-size:24px;cursor:pointer}
+.grid2{display:grid;grid-template-columns:170px 1fr;gap:7px 12px;font-size:14px}.lab{font-weight:bold;color:#475467}
+table{width:100%;border-collapse:collapse;margin-top:16px;font-size:13px}th,td{padding:6px;border-bottom:1px solid #eee;text-align:left}.wh{font-weight:bold}
+</style>
+</head>
+<body>
+<header>
+  <h1>Warehouse Movements — {{ selected_date.strftime('%d %b %Y') }}</h1>
+  <div class="controls"><a href="/board?date={{ prev_date.isoformat() }}">Previous</a><a href="/board">Today</a><a href="/board?date={{ next_date.isoformat() }}">Next</a></div>
+</header>
+<div class="wrap">
+  <div class="legend"><span><i class="sw" style="background:#d9e8ff"></i>Collection from warehouse</span><span><i class="sw" style="background:#ffe6c7"></i>Delivery to warehouse</span><span><i class="sw" style="background:#d7f2da"></i>Completed</span></div>
+  <div class="timeline">
+    {% for t in ticks %}<div class="grid" style="left:{{ t.left_pct }}%"></div><div class="tick" style="left:{{ t.left_pct }}%">{{ t.label }}</div>{% endfor %}
+    {% for item in timed_items %}
+      <div class="card {{ item.status_class }}" style="left:{{ item.left_pct }}%;top:{{ 40 + (loop.index0 % 7)*72 }}px" onclick='openDetails({{ item|tojson }})'>
+        <strong>{{ item.vehicle }}</strong><span>{{ item.account }}</span>{% if item.anchor_label %}<small>{{ item.anchor_label }}</small>{% endif %}
+      </div>
+    {% endfor %}
+  </div>
+  {% if tba_items %}<div class="tba"><h2>Time TBA</h2><div class="tba-row">{% for item in tba_items %}<div class="card {{ item.status_class }}" onclick='openDetails({{ item|tojson }})'><strong>{{ item.vehicle }}</strong><span>{{ item.account }}</span></div>{% endfor %}</div></div>{% endif %}
+</div>
+<dialog id="details"><div class="mh"><strong id="mt">Movement</strong><button class="close" onclick="details.close()">×</button></div><div class="mb"><div class="grid2" id="dg"></div><table><thead><tr><th>Stop</th><th>Postcode</th><th>Required</th><th>Completed</th></tr></thead><tbody id="rb"></tbody></table></div></dialog>
+<script>
+function fmt(v){if(v===null||v===undefined||v==="")return"—";if(typeof v==="string"&&v.includes("T")){const d=new Date(v);if(!isNaN(d))return d.toLocaleString("en-GB",{hour12:false});}return v;}
+function openDetails(v){
+  mt.textContent=(v.movement_type==="OUTBOUND"?"Collection from warehouse":v.movement_type==="INBOUND"?"Delivery to warehouse":v.movement_type==="BOTH"?"Warehouse deliver / collect":"Warehouse movement")+" — "+v.vehicle;
+  const rows=[["Job",v.job_ref],["Driver",v.agent_callsign],["Vehicle",v.vehicle],["Account",v.account],["Goods",v.goods],["Warehouse Stop ID",v.warehouse_stop_id],["Booked",v.booked_at],["Warehouse Required",v.warehouse_required_from],["Completed",v.completed_at]];
+  dg.innerHTML=""; for(const [l,vv] of rows){const a=document.createElement("div");a.className="lab";a.textContent=l;const b=document.createElement("div");b.textContent=fmt(vv);dg.append(a,b);}
+  rb.innerHTML=""; for(const s of v.route){const tr=document.createElement("tr");if(s.is_warehouse)tr.className="wh";for(const x of [s.drop_order,s.postcode,fmt(s.required_from),fmt(s.date_completed)]){const td=document.createElement("td");td.textContent=x??"—";tr.appendChild(td);}rb.appendChild(tr);}
+  details.showModal();
+}
+</script>
+</body></html>

@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import os
 import re
-from datetime import datetime
+from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, render_template, request
 import psycopg
 from psycopg.rows import dict_row
 
@@ -196,15 +196,7 @@ def derive_movement_type(stops: list[dict], index: int) -> str:
 
 @app.get("/health")
 def health():
-    return jsonify({
-        "ok": True,
-        "service": "warehouse-movements",
-        "db_name": DB_NAME,
-        "db_user": DB_USER,
-        "instance_connection_name": INSTANCE_CONNECTION_NAME,
-        "db_password_set": bool(DB_PASSWORD),
-        "ingest_token_set": bool(INGEST_TOKEN),
-    })
+    return jsonify({"ok": True, "service": "warehouse-movements"})
 
 
 @app.post("/warehouse-movement-email")
@@ -471,6 +463,110 @@ def warehouse_movement_email():
         "removed_open_movements": removed,
         "cancelled": bool(job["cancelled_at"]),
     })
+
+
+
+@app.get("/board")
+def board():
+    raw_date = request.args.get("date")
+    selected_date = date.fromisoformat(raw_date) if raw_date else datetime.now(LONDON).date()
+    day_start = datetime.combine(selected_date, time.min).replace(tzinfo=LONDON)
+    day_end = day_start + timedelta(days=1)
+
+    with db_connect(row_factory=dict_row) as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT wm.id, wm.job_ref, wm.warehouse_stop_id, wm.movement_type,
+                       wm.completed_at, wm.cancelled_at,
+                       wj.agent_callsign, wj.account, wj.vehicle, wj.goods, wj.booked_at,
+                       ws.required_from AS warehouse_required_from
+                FROM public.warehouse_movements wm
+                JOIN public.warehouse_jobs wj ON wj.job_ref = wm.job_ref
+                JOIN public.warehouse_stops ws ON ws.stop_id = wm.warehouse_stop_id
+                WHERE wm.cancelled_at IS NULL
+                  AND (
+                    (ws.required_from >= %s AND ws.required_from < %s)
+                    OR (ws.required_from IS NULL AND wj.booked_at >= %s AND wj.booked_at < %s)
+                    OR (wm.completed_at >= %s AND wm.completed_at < %s)
+                  )
+                ORDER BY COALESCE(ws.required_from, wj.booked_at, wm.completed_at), wm.id
+            """, (day_start, day_end, day_start, day_end, day_start, day_end))
+            rows = [dict(r) for r in cur.fetchall()]
+
+            job_refs = sorted({r["job_ref"] for r in rows})
+            routes = {}
+            if job_refs:
+                cur.execute("""
+                    SELECT job_ref, drop_order, drop_type, postcode,
+                           required_from, required_to, date_completed, stop_id, is_warehouse
+                    FROM public.warehouse_stops
+                    WHERE job_ref = ANY(%s)
+                    ORDER BY job_ref, drop_order
+                """, (job_refs,))
+                for s in cur.fetchall():
+                    routes.setdefault(s["job_ref"], []).append(dict(s))
+
+    timed_items, tba_items = [], []
+    for r in rows:
+        status_class = "complete" if r["completed_at"] else (
+            "outbound" if r["movement_type"] == "OUTBOUND"
+            else "inbound" if r["movement_type"] == "INBOUND"
+            else "mixed"
+        )
+
+        route = routes.get(r["job_ref"], [])
+        display_dt = r["warehouse_required_from"]
+        anchor_label = None
+
+        if display_dt is None and r["movement_type"] in ("INBOUND", "BOTH"):
+            wh_order = next((s["drop_order"] for s in route if s["stop_id"] == r["warehouse_stop_id"]), None)
+            prior = [s for s in route if wh_order is not None and s["drop_order"] < wh_order and not s["is_warehouse"] and s["required_from"]]
+            if prior:
+                first = min(prior, key=lambda s: s["required_from"])
+                display_dt = first["required_from"]
+                anchor_label = "from " + (first["postcode"] or "")
+
+        modal_route = [{
+            "drop_order": s["drop_order"],
+            "drop_type": s["drop_type"],
+            "postcode": s["postcode"],
+            "required_from": s["required_from"].isoformat() if s["required_from"] else None,
+            "required_to": s["required_to"].isoformat() if s["required_to"] else None,
+            "date_completed": s["date_completed"].isoformat() if s["date_completed"] else None,
+            "stop_id": s["stop_id"],
+            "is_warehouse": s["is_warehouse"],
+        } for s in route]
+
+        item = {
+            "id": r["id"], "job_ref": r["job_ref"], "warehouse_stop_id": r["warehouse_stop_id"],
+            "movement_type": r["movement_type"], "status_class": status_class,
+            "vehicle": r["vehicle"] or "?", "account": r["account"] or "",
+            "agent_callsign": r["agent_callsign"], "goods": r["goods"],
+            "booked_at": r["booked_at"].isoformat() if r["booked_at"] else None,
+            "completed_at": r["completed_at"].isoformat() if r["completed_at"] else None,
+            "warehouse_required_from": r["warehouse_required_from"].isoformat() if r["warehouse_required_from"] else None,
+            "anchor_dt": display_dt.isoformat() if display_dt else None,
+            "anchor_label": anchor_label, "route": modal_route,
+        }
+
+        if display_dt:
+            mins = (display_dt - day_start).total_seconds() / 60
+            item["left_pct"] = max(0, min(100, mins / 1440 * 100))
+            timed_items.append(item)
+        else:
+            tba_items.append(item)
+
+    ticks = [{"label": f"{h:02d}:00", "left_pct": h / 24 * 100} for h in range(0, 25, 2)]
+
+    return render_template(
+        "board.html",
+        selected_date=selected_date,
+        prev_date=selected_date - timedelta(days=1),
+        next_date=selected_date + timedelta(days=1),
+        timed_items=timed_items,
+        tba_items=tba_items,
+        ticks=ticks,
+    )
 
 
 if __name__ == "__main__":
