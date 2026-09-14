@@ -517,14 +517,38 @@ def board():
         route = routes.get(r["job_ref"], [])
         display_dt = r["warehouse_required_from"]
         anchor_label = None
+        time_confidence = "ACTUAL" if display_dt else "NOMINAL"
 
+        wh_order = next(
+            (s["drop_order"] for s in route if s["stop_id"] == r["warehouse_stop_id"]),
+            None
+        )
+
+        # INBOUND:
+        # If there is no warehouse appointment time, use the LAST known external
+        # collection before the warehouse and place the nominal warehouse arrival
+        # two hours later. This is deliberately a temporary operational estimate.
         if display_dt is None and r["movement_type"] in ("INBOUND", "BOTH"):
-            wh_order = next((s["drop_order"] for s in route if s["stop_id"] == r["warehouse_stop_id"]), None)
-            prior = [s for s in route if wh_order is not None and s["drop_order"] < wh_order and not s["is_warehouse"] and s["required_from"]]
+            prior = [
+                s for s in route
+                if wh_order is not None
+                and s["drop_order"] < wh_order
+                and not s["is_warehouse"]
+                and s["required_from"] is not None
+            ]
             if prior:
-                first = min(prior, key=lambda s: s["required_from"])
-                display_dt = first["required_from"]
-                anchor_label = "from " + (first["postcode"] or "")
+                last = max(prior, key=lambda s: s["drop_order"])
+                display_dt = last["required_from"] + timedelta(hours=2)
+                anchor_label = "est. from " + (last["postcode"] or "")
+                time_confidence = "ESTIMATED"
+
+        # TBA fallback:
+        # Keep the movement near the meaningful part of the day instead of in a
+        # detached TBA strip. If no stop timing is available, use booked_at.
+        if display_dt is None and r["booked_at"] is not None:
+            display_dt = r["booked_at"]
+            anchor_label = "TBA"
+            time_confidence = "TBA"
 
         modal_route = [{
             "drop_order": s["drop_order"],
@@ -546,12 +570,26 @@ def board():
             "completed_at": r["completed_at"].isoformat() if r["completed_at"] else None,
             "warehouse_required_from": r["warehouse_required_from"].isoformat() if r["warehouse_required_from"] else None,
             "anchor_dt": display_dt.isoformat() if display_dt else None,
-            "anchor_label": anchor_label, "route": modal_route,
+            "anchor_label": anchor_label,
+            "time_confidence": time_confidence,
+            "route": modal_route,
         }
 
         if display_dt:
             mins = (display_dt - day_start).total_seconds() / 60
-            item["left_pct"] = max(0, min(100, mins / 1440 * 100))
+            anchor_pct = max(0, min(100, mins / 1440 * 100))
+
+            # Minimum visual duration of 30 minutes = 2.0833% of a 24h board.
+            # OUTBOUND starts at the warehouse time and points right.
+            # INBOUND ends at the nominal/actual warehouse arrival and points left.
+            width_pct = 30 / 1440 * 100
+            item["width_pct"] = width_pct
+
+            if r["movement_type"] == "INBOUND":
+                item["left_pct"] = max(0, anchor_pct - width_pct)
+            else:
+                item["left_pct"] = anchor_pct
+
             timed_items.append(item)
         else:
             tba_items.append(item)
