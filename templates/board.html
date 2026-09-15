@@ -32,12 +32,31 @@ table{width:100%;border-collapse:collapse;margin-top:16px;font-size:13px}th,td{p
 .route-marker.complete-route{background:#16A34A;box-shadow:0 0 0 2px #16A34A}
 .route-postcode{position:absolute;transform:translate(-50%,-150%);font-size:12px;font-weight:bold;background:white;padding:2px 5px;border-radius:4px;white-space:nowrap;z-index:4;box-shadow:0 1px 3px rgba(0,0,0,.15)}
 .card{z-index:5}
+
+.controls input[type="date"]{margin-left:8px;padding:7px 10px;border:1px solid #cfd5dc;border-radius:6px;background:white;color:#17202a;font:inherit}
+.lookahead{margin-top:18px;background:white;border:1px solid #d8dde5;border-radius:10px;padding:12px}
+.lookahead-title{font-size:15px;font-weight:bold;margin-bottom:10px}
+.lookahead-days{display:grid;grid-template-columns:repeat(10,minmax(90px,1fr));gap:8px}
+.day-box{display:block;text-decoration:none;color:#17202a;background:white;border:2px solid #d8dde5;border-radius:8px;padding:10px 8px;text-align:center;min-height:70px}
+.day-box.has-movements{background:#2563EB;color:white;border-color:#1D4ED8}
+.day-box.selected{outline:4px solid #111827;outline-offset:1px}
+.day-box.today{box-shadow:inset 0 0 0 2px #16A34A}
+.day-name{font-size:12px;font-weight:bold;text-transform:uppercase}
+.day-date{font-size:18px;font-weight:bold;margin-top:3px}
+.day-count{font-size:12px;margin-top:4px}
+@media(max-width:1200px){.lookahead-days{grid-template-columns:repeat(5,1fr)}}
 </style>
 </head>
 <body>
 <header>
   <h1>Warehouse Movements — {{ selected_date.strftime('%d %b %Y') }}</h1>
-  <div class="controls"><a href="/board?date={{ prev_date.isoformat() }}">Previous</a><a href="/board">Today</a><a href="/board?date={{ next_date.isoformat() }}">Next</a></div>
+  <div class="controls">
+    <a href="/board?date={{ prev_date.isoformat() }}">Previous</a>
+    <a href="/board">Today</a>
+    <a href="/board?date={{ next_date.isoformat() }}">Next</a>
+    <input id="date-picker" type="date" value="{{ selected_date.isoformat() }}"
+           onchange="window.location='/board?date='+this.value">
+  </div>
 </header>
 <div class="wrap">
   <div class="legend"><span><i class="sw" style="background:#1976D2"></i>Collection from warehouse →</span><span>← <i class="sw" style="background:#F59E0B"></i>Delivery to warehouse</span><span><i class="sw" style="background:#16A34A"></i>Completed</span><span>Dashed = estimated / TBA time</span></div>
@@ -68,6 +87,27 @@ table{width:100%;border-collapse:collapse;margin-top:16px;font-size:13px}th,td{p
       </div>
     {% endfor %}
   </div>
+
+  <div class="lookahead">
+    <div class="lookahead-title">Next 10 days</div>
+    <div class="lookahead-days">
+      {% for d in lookahead_days %}
+        <a class="day-box {% if d.count > 0 %}has-movements{% endif %} {% if d.selected %}selected{% endif %} {% if d.today %}today{% endif %}"
+           href="/board?date={{ d.date.isoformat() }}">
+          <div class="day-name">{{ d.date.strftime('%a') }}</div>
+          <div class="day-date">{{ d.date.strftime('%d %b') }}</div>
+          <div class="day-count">
+            {% if d.count > 0 %}
+              {{ d.count }} movement{% if d.count != 1 %}s{% endif %}
+            {% else %}
+              No movements
+            {% endif %}
+          </div>
+        </a>
+      {% endfor %}
+    </div>
+  </div>
+
   {% if tba_items %}<div class="tba"><h2>Time TBA</h2><div class="tba-row">{% for item in tba_items %}<div class="card {{ item.status_class }}" onclick='openDetails({{ item|tojson }})'><strong>{{ item.vehicle }}</strong><span>{{ item.account }}</span></div>{% endfor %}</div></div>{% endif %}
 </div>
 <dialog id="details"><div class="mh"><strong id="mt">Movement</strong><button class="close" onclick="details.close()">×</button></div><div class="mb"><div class="grid2" id="dg"></div><table><thead><tr><th>Stop</th><th>Postcode</th><th>Required</th><th>Completed</th></tr></thead><tbody id="rb"></tbody></table></div></dialog>

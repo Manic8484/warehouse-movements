@@ -636,6 +636,54 @@ def board():
 
     ticks = [{"label": f"{h:02d}:00", "left_pct": h / 24 * 100} for h in range(0, 25, 2)]
 
+    # 10-day operational look-ahead, based on today.
+    today_local = datetime.now(LONDON).date()
+    lookahead_start = datetime.combine(today_local, time.min).replace(tzinfo=LONDON)
+    lookahead_end = lookahead_start + timedelta(days=10)
+
+    day_counts = {today_local + timedelta(days=i): 0 for i in range(10)}
+
+    with db_connect(row_factory=dict_row) as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT
+                    wm.completed_at,
+                    wj.booked_at,
+                    ws.required_from AS warehouse_required_from
+                FROM public.warehouse_movements wm
+                JOIN public.warehouse_jobs wj ON wj.job_ref = wm.job_ref
+                JOIN public.warehouse_stops ws ON ws.stop_id = wm.warehouse_stop_id
+                WHERE wm.cancelled_at IS NULL
+                  AND (
+                    (ws.required_from >= %s AND ws.required_from < %s)
+                    OR (wj.booked_at >= %s AND wj.booked_at < %s)
+                    OR (wm.completed_at >= %s AND wm.completed_at < %s)
+                  )
+            """, (
+                lookahead_start, lookahead_end,
+                lookahead_start, lookahead_end,
+                lookahead_start, lookahead_end
+            ))
+            rows_lookahead = [dict(r) for r in cur.fetchall()]
+
+    for r in rows_lookahead:
+        dt = r["warehouse_required_from"] or r["booked_at"] or r["completed_at"]
+        if dt is None:
+            continue
+        d = dt.astimezone(LONDON).date() if getattr(dt, "tzinfo", None) else dt.date()
+        if d in day_counts:
+            day_counts[d] += 1
+
+    lookahead_days = []
+    for i in range(10):
+        d = today_local + timedelta(days=i)
+        lookahead_days.append({
+            "date": d,
+            "count": day_counts[d],
+            "selected": d == selected_date,
+            "today": d == today_local,
+        })
+
     return render_template(
         "board.html",
         selected_date=selected_date,
@@ -644,6 +692,7 @@ def board():
         timed_items=timed_items,
         tba_items=tba_items,
         ticks=ticks,
+        lookahead_days=lookahead_days,
     )
 
 
