@@ -12,19 +12,26 @@ h1{margin:0;font-size:24px}.controls a{margin-left:6px;padding:7px 10px;border:1
 .grid{position:absolute;top:0;bottom:0;border-left:1px solid #e4e7ec}.tick{position:absolute;top:4px;transform:translateX(-50%);font-size:11px;color:#667085}
 .card{position:absolute;min-width:140px;min-height:62px;padding:8px 10px;box-shadow:0 1px 4px rgba(0,0,0,.16);cursor:pointer;border:1px solid rgba(0,0,0,.08)}
 .card strong{display:block;font-size:18px}.card small{display:block;margin-top:3px;font-size:12px}
-.outbound{background:#d9e8ff;border-radius:8px 0 0 8px}
-.outbound:after,.complete.outbound:after,.mixed:after{content:"";position:absolute;top:-1px;right:-24px;width:0;height:0;border-top:31px solid transparent;border-bottom:31px solid transparent;border-left:24px solid #d9e8ff}
-.inbound{background:#ffe6c7;border-radius:0 8px 8px 0}
-.inbound:before,.complete.inbound:before{content:"";position:absolute;top:-1px;left:-24px;width:0;height:0;border-top:31px solid transparent;border-bottom:31px solid transparent;border-right:24px solid #ffe6c7}
-.mixed{background:#eadcff}
-.complete{background:#d7f2da}
-.complete.outbound:after{border-left-color:#d7f2da}
-.complete.inbound:before{border-right-color:#d7f2da}
+.outbound{background:#1976D2;color:white;border-radius:8px 0 0 8px}
+.outbound:after,.complete.outbound:after,.mixed:after{content:"";position:absolute;top:-1px;right:-24px;width:0;height:0;border-top:31px solid transparent;border-bottom:31px solid transparent;border-left:24px solid #1976D2}
+.inbound{background:#F59E0B;color:#111827;border-radius:0 8px 8px 0}
+.inbound:before,.complete.inbound:before{content:"";position:absolute;top:-1px;left:-24px;width:0;height:0;border-top:31px solid transparent;border-bottom:31px solid transparent;border-right:24px solid #F59E0B}
+.mixed{background:#7C3AED;color:white}
+.complete{background:#16A34A;color:white}
+.complete.outbound:after{border-left-color:#16A34A}
+.complete.inbound:before{border-right-color:#16A34A}
 .estimated,.tba-time{border-style:dashed}
 .confidence{font-size:10px;font-weight:bold;letter-spacing:.04em;text-transform:uppercase;opacity:.7}
 dialog{border:0;border-radius:10px;width:min(760px,90vw);padding:0}.mh{display:flex;justify-content:space-between;padding:14px 16px;border-bottom:1px solid #eee}.mb{padding:16px}.close{border:0;background:none;font-size:24px;cursor:pointer}
 .grid2{display:grid;grid-template-columns:170px 1fr;gap:7px 12px;font-size:14px}.lab{font-weight:bold;color:#475467}
 table{width:100%;border-collapse:collapse;margin-top:16px;font-size:13px}th,td{padding:6px;border-bottom:1px solid #eee;text-align:left}.wh{font-weight:bold}
+
+.route-line{position:absolute;height:4px;background:#F59E0B;border-radius:3px;z-index:1}
+.route-line.complete-route{background:#16A34A}
+.route-marker{position:absolute;width:16px;height:16px;border-radius:50%;background:#F59E0B;border:2px solid white;box-shadow:0 0 0 2px #F59E0B;transform:translate(-50%,-50%);z-index:3}
+.route-marker.complete-route{background:#16A34A;box-shadow:0 0 0 2px #16A34A}
+.route-postcode{position:absolute;transform:translate(-50%,-150%);font-size:12px;font-weight:bold;background:white;padding:2px 5px;border-radius:4px;white-space:nowrap;z-index:4;box-shadow:0 1px 3px rgba(0,0,0,.15)}
+.card{z-index:5}
 </style>
 </head>
 <body>
@@ -33,16 +40,30 @@ table{width:100%;border-collapse:collapse;margin-top:16px;font-size:13px}th,td{p
   <div class="controls"><a href="/board?date={{ prev_date.isoformat() }}">Previous</a><a href="/board">Today</a><a href="/board?date={{ next_date.isoformat() }}">Next</a></div>
 </header>
 <div class="wrap">
-  <div class="legend"><span><i class="sw" style="background:#d9e8ff"></i>Collection from warehouse →</span><span>← <i class="sw" style="background:#ffe6c7"></i>Delivery to warehouse</span><span><i class="sw" style="background:#d7f2da"></i>Completed</span><span>Dashed = estimated / TBA time</span></div>
+  <div class="legend"><span><i class="sw" style="background:#1976D2"></i>Collection from warehouse →</span><span>← <i class="sw" style="background:#F59E0B"></i>Delivery to warehouse</span><span><i class="sw" style="background:#16A34A"></i>Completed</span><span>Dashed = estimated / TBA time</span></div>
   <div class="timeline">
     {% for t in ticks %}<div class="grid" style="left:{{ t.left_pct }}%"></div><div class="tick" style="left:{{ t.left_pct }}%">{{ t.label }}</div>{% endfor %}
     {% for item in timed_items %}
+      {% set top = 76 + item.lane * 94 %}
+
+      {% if item.movement_type == 'INBOUND' and item.inbound_markers %}
+        {% set first_marker = item.inbound_markers[0] %}
+        <div class="route-line {% if item.state_class == 'complete' %}complete-route{% endif %}"
+             style="left:{{ first_marker.left_pct }}%;width:{{ item.left_pct - first_marker.left_pct }}%;top:{{ top + 31 }}px"></div>
+
+        {% for marker in item.inbound_markers %}
+          <div class="route-marker {% if item.state_class == 'complete' %}complete-route{% endif %}"
+               style="left:{{ marker.left_pct }}%;top:{{ top + 33 }}px"></div>
+          <div class="route-postcode"
+               style="left:{{ marker.left_pct }}%;top:{{ top + 33 }}px">{{ marker.postcode }}</div>
+        {% endfor %}
+      {% endif %}
+
       <div class="card {{ item.direction_class }} {{ item.state_class }} {% if item.time_confidence == 'ESTIMATED' %}estimated{% elif item.time_confidence == 'TBA' %}tba-time{% endif %}"
-           style="left:{{ item.left_pct }}%;width:{{ item.width_pct }}%;top:{{ 40 + (loop.index0 % 7)*72 }}px"
+           style="left:{{ item.left_pct }}%;width:{{ item.width_pct }}%;top:{{ top }}px"
            onclick='openDetails({{ item|tojson }})'>
         <strong>{{ item.vehicle }}</strong>
         <span>{{ item.account }}</span>
-        {% if item.anchor_label %}<small>{{ item.anchor_label }}</small>{% endif %}
         {% if item.time_confidence != 'ACTUAL' %}<small class="confidence">{{ item.time_confidence }}</small>{% endif %}
       </div>
     {% endfor %}

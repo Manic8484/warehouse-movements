@@ -517,7 +517,6 @@ def board():
 
         route = routes.get(r["job_ref"], [])
         display_dt = r["warehouse_required_from"]
-        anchor_label = None
         time_confidence = "ACTUAL" if display_dt else "NOMINAL"
 
         wh_order = next(
@@ -525,30 +524,50 @@ def board():
             None
         )
 
-        # INBOUND:
-        # If there is no warehouse appointment time, use the LAST known external
-        # collection before the warehouse and place the nominal warehouse arrival
-        # two hours later. This is deliberately a temporary operational estimate.
-        if display_dt is None and r["movement_type"] in ("INBOUND", "BOTH"):
-            prior = [
-                s for s in route
-                if wh_order is not None
-                and s["drop_order"] < wh_order
-                and not s["is_warehouse"]
-                and s["required_from"] is not None
-            ]
-            if prior:
-                last = max(prior, key=lambda s: s["drop_order"])
-                display_dt = last["required_from"] + timedelta(hours=2)
-                anchor_label = "est. from " + (last["postcode"] or "")
+        prior_external = [
+            s for s in route
+            if wh_order is not None
+            and s["drop_order"] < wh_order
+            and not s["is_warehouse"]
+        ]
+
+        inbound_markers = []
+
+        if r["movement_type"] in ("INBOUND", "BOTH") and prior_external:
+            marker_stops = prior_external[-2:]
+            marker_times = []
+            last_known = None
+
+            for idx, s in enumerate(marker_stops):
+                marker_time = s["required_from"]
+
+                if marker_time is None and last_known is not None:
+                    marker_time = last_known + timedelta(hours=1)
+                elif marker_time is None and r["booked_at"] is not None:
+                    marker_time = r["booked_at"] + timedelta(hours=idx)
+
+                if marker_time is not None:
+                    last_known = marker_time
+
+                marker_times.append(marker_time)
+
+            if len(marker_times) == 2 and marker_times[0] and marker_times[1]:
+                if marker_times[1] <= marker_times[0] + timedelta(minutes=10):
+                    marker_times[1] = marker_times[0] + timedelta(hours=1)
+
+            for s, mt in zip(marker_stops, marker_times):
+                if mt:
+                    inbound_markers.append({
+                        "postcode": s["postcode"] or "",
+                        "time": mt.isoformat(),
+                    })
+
+            if display_dt is None and inbound_markers:
+                display_dt = datetime.fromisoformat(inbound_markers[-1]["time"]) + timedelta(hours=2)
                 time_confidence = "ESTIMATED"
 
-        # TBA fallback:
-        # Keep the movement near the meaningful part of the day instead of in a
-        # detached TBA strip. If no stop timing is available, use booked_at.
         if display_dt is None and r["booked_at"] is not None:
             display_dt = r["booked_at"] + timedelta(hours=2)
-            anchor_label = None
             time_confidence = "TBA"
 
         modal_route = [{
@@ -562,40 +581,58 @@ def board():
             "is_warehouse": s["is_warehouse"],
         } for s in route]
 
+        direction_class = (
+            "outbound" if r["movement_type"] == "OUTBOUND"
+            else "inbound" if r["movement_type"] == "INBOUND"
+            else "mixed"
+        )
+        state_class = "complete" if r["completed_at"] else ""
+
         item = {
-            "id": r["id"], "job_ref": r["job_ref"], "warehouse_stop_id": r["warehouse_stop_id"],
+            "id": r["id"],
+            "job_ref": r["job_ref"],
+            "warehouse_stop_id": r["warehouse_stop_id"],
             "movement_type": r["movement_type"],
             "direction_class": direction_class,
             "state_class": state_class,
-            "vehicle": r["vehicle"] or "?", "account": r["account"] or "",
-            "agent_callsign": r["agent_callsign"], "goods": r["goods"],
+            "vehicle": r["vehicle"] or "?",
+            "account": r["account"] or "",
+            "agent_callsign": r["agent_callsign"],
+            "goods": r["goods"],
             "booked_at": r["booked_at"].isoformat() if r["booked_at"] else None,
             "completed_at": r["completed_at"].isoformat() if r["completed_at"] else None,
             "warehouse_required_from": r["warehouse_required_from"].isoformat() if r["warehouse_required_from"] else None,
             "anchor_dt": display_dt.isoformat() if display_dt else None,
-            "anchor_label": anchor_label,
             "time_confidence": time_confidence,
             "route": modal_route,
+            "inbound_markers": inbound_markers,
         }
 
         if display_dt:
             mins = (display_dt - day_start).total_seconds() / 60
             anchor_pct = max(0, min(100, mins / 1440 * 100))
 
-            # Minimum visual duration of 30 minutes = 2.0833% of a 24h board.
-            # OUTBOUND starts at the warehouse time and points right.
-            # INBOUND ends at the nominal/actual warehouse arrival and points left.
             width_pct = 30 / 1440 * 100
             item["width_pct"] = width_pct
+            item["arrival_pct"] = anchor_pct
 
             if r["movement_type"] == "INBOUND":
                 item["left_pct"] = max(0, anchor_pct - width_pct)
             else:
                 item["left_pct"] = anchor_pct
 
+            for marker in inbound_markers:
+                mt = datetime.fromisoformat(marker["time"])
+                marker_minutes = (mt - day_start).total_seconds() / 60
+                marker["left_pct"] = max(0, min(100, marker_minutes / 1440 * 100))
+
             timed_items.append(item)
         else:
             tba_items.append(item)
+
+    timed_items.sort(key=lambda x: (x["anchor_dt"] or "", x["job_ref"], x["id"]))
+    for idx, item in enumerate(timed_items):
+        item["lane"] = idx % 5
 
     ticks = [{"label": f"{h:02d}:00", "left_pct": h / 24 * 100} for h in range(0, 25, 2)]
 
