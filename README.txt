@@ -52,3 +52,19 @@ Behaviour
 - Job-level Cancelled marks current warehouse movements cancelled.
 - If a later full snapshot removes an open warehouse stop, the old movement is
   marked cancelled rather than left live.
+
+
+PRESENTATION HIDE CONTROL
+-------------------------
+Run 002_warehouse_movement_presentation_hidden.sql before deploying.
+
+The movement modal now has:
+  Hide from presentation
+
+Hidden movements are excluded from:
+- the current-day board
+- the 10-day look-ahead counts
+
+This is deliberately a V1 presentation control only. The underlying job/stops
+remain in the database and ingest continues to update them. V2 can replace this
+with proper service-based filtering.

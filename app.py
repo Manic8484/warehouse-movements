@@ -466,6 +466,36 @@ def warehouse_movement_email():
 
 
 
+
+@app.post("/warehouse-movements/<int:movement_id>/presentation-state")
+def update_movement_presentation_state(movement_id):
+    payload = request.get_json(silent=True) or {}
+    hidden = bool(payload.get("hidden"))
+
+    with db_connect(row_factory=dict_row) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE public.warehouse_movements
+                SET presentation_hidden = %s,
+                    updated_at = now()
+                WHERE id = %s
+                RETURNING id, presentation_hidden
+                """,
+                (hidden, movement_id),
+            )
+            row = cur.fetchone()
+            if not row:
+                return jsonify({"ok": False, "error": "movement not found"}), 404
+            conn.commit()
+
+    return jsonify({
+        "ok": True,
+        "movement_id": row["id"],
+        "hidden": bool(row["presentation_hidden"]),
+    })
+
+
 @app.get("/board")
 def board():
     raw_date = request.args.get("date")
@@ -478,12 +508,14 @@ def board():
             cur.execute("""
                 SELECT wm.id, wm.job_ref, wm.warehouse_stop_id, wm.movement_type,
                        wm.completed_at, wm.cancelled_at,
+                    wm.presentation_hidden,
                        wj.agent_callsign, wj.account, wj.vehicle, wj.goods, wj.booked_at,
                        ws.required_from AS warehouse_required_from
                 FROM public.warehouse_movements wm
                 JOIN public.warehouse_jobs wj ON wj.job_ref = wm.job_ref
                 JOIN public.warehouse_stops ws ON ws.stop_id = wm.warehouse_stop_id
                 WHERE wm.cancelled_at IS NULL
+                  AND COALESCE(wm.presentation_hidden, FALSE) = FALSE
                   AND (
                     (ws.required_from >= %s AND ws.required_from < %s)
                     OR (ws.required_from IS NULL AND wj.booked_at >= %s AND wj.booked_at < %s)
@@ -605,6 +637,7 @@ def board():
             "anchor_dt": display_dt.isoformat() if display_dt else None,
             "time_confidence": time_confidence,
             "route": modal_route,
+            "presentation_hidden": bool(r.get("presentation_hidden")),
             "inbound_markers": inbound_markers,
         }
 
@@ -654,6 +687,7 @@ def board():
                 JOIN public.warehouse_jobs wj ON wj.job_ref = wm.job_ref
                 JOIN public.warehouse_stops ws ON ws.stop_id = wm.warehouse_stop_id
                 WHERE wm.cancelled_at IS NULL
+                  AND COALESCE(wm.presentation_hidden, FALSE) = FALSE
                   AND (
                     (ws.required_from >= %s AND ws.required_from < %s)
                     OR (wj.booked_at >= %s AND wj.booked_at < %s)

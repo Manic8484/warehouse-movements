@@ -45,6 +45,11 @@ table{width:100%;border-collapse:collapse;margin-top:16px;font-size:13px}th,td{p
 .day-date{font-size:18px;font-weight:bold;margin-top:3px}
 .day-count{font-size:12px;margin-top:4px}
 @media(max-width:1200px){.lookahead-days{grid-template-columns:repeat(5,1fr)}}
+
+.movement-state{display:flex;align-items:center;gap:12px;margin:14px 0;padding:10px;border:1px solid #e4e7ec;border-radius:8px;background:#f8fafc}
+.movement-state label{display:flex;align-items:center;gap:7px;font-weight:bold}
+.movement-state input{width:18px;height:18px}
+.movement-state button{margin-left:auto;padding:7px 12px;border:0;border-radius:6px;background:#111827;color:#fff;font-weight:bold;cursor:pointer}
 </style>
 </head>
 <body>
@@ -112,13 +117,31 @@ table{width:100%;border-collapse:collapse;margin-top:16px;font-size:13px}th,td{p
 </div>
 <dialog id="details"><div class="mh"><strong id="mt">Movement</strong><button class="close" onclick="details.close()">×</button></div><div class="mb"><div class="grid2" id="dg"></div><table><thead><tr><th>Stop</th><th>Postcode</th><th>Required</th><th>Completed</th></tr></thead><tbody id="rb"></tbody></table></div></dialog>
 <script>
+let currentMovement=null;
 function fmt(v){if(v===null||v===undefined||v==="")return"—";if(typeof v==="string"&&v.includes("T")){const d=new Date(v);if(!isNaN(d))return d.toLocaleString("en-GB",{hour12:false});}return v;}
 function openDetails(v){
+  currentMovement=v;
+  document.getElementById("hide-movement").checked=!!v.presentation_hidden;
   mt.textContent=(v.movement_type==="OUTBOUND"?"Collection from warehouse":v.movement_type==="INBOUND"?"Delivery to warehouse":v.movement_type==="BOTH"?"Warehouse deliver / collect":"Warehouse movement")+" — "+v.vehicle;
   const rows=[["Job",v.job_ref],["Driver",v.agent_callsign],["Vehicle",v.vehicle],["Account",v.account],["Goods",v.goods],["Warehouse Stop ID",v.warehouse_stop_id],["Booked",v.booked_at],["Warehouse Required",v.warehouse_required_from],["Completed",v.completed_at]];
   dg.innerHTML=""; for(const [l,vv] of rows){const a=document.createElement("div");a.className="lab";a.textContent=l;const b=document.createElement("div");b.textContent=fmt(vv);dg.append(a,b);}
   rb.innerHTML=""; for(const s of v.route){const tr=document.createElement("tr");if(s.is_warehouse)tr.className="wh";for(const x of [s.drop_order,s.postcode,fmt(s.required_from),fmt(s.date_completed)]){const td=document.createElement("td");td.textContent=x??"—";tr.appendChild(td);}rb.appendChild(tr);}
   details.showModal();
+}
+
+async function saveMovementState(){
+  if(!currentMovement) return;
+  const response=await fetch("/warehouse-movements/"+currentMovement.id+"/presentation-state",{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({hidden:document.getElementById("hide-movement").checked})
+  });
+  const data=await response.json();
+  if(!response.ok || !data.ok){
+    alert(data.error || "Could not save presentation state");
+    return;
+  }
+  window.location.reload();
 }
 </script>
 </body></html>
