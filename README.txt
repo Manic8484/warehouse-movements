@@ -68,3 +68,11 @@ Hidden movements are excluded from:
 This is deliberately a V1 presentation control only. The underlying job/stops
 remain in the database and ingest continues to update them. V2 can replace this
 with proper service-based filtering.
+
+FIXED HIDE CONTROL MODAL
+------------------------
+The first hide-control package inserted JavaScript for #hide-movement but did
+not insert the checkbox into the compact modal markup. That caused openDetails()
+to fail before showModal().
+
+This package inserts the checkbox and Save button into the actual modal.

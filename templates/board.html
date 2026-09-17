@@ -115,7 +115,7 @@ table{width:100%;border-collapse:collapse;margin-top:16px;font-size:13px}th,td{p
 
   {% if tba_items %}<div class="tba"><h2>Time TBA</h2><div class="tba-row">{% for item in tba_items %}<div class="card {{ item.status_class }}" onclick='openDetails({{ item|tojson }})'><strong>{{ item.vehicle }}</strong><span>{{ item.account }}</span></div>{% endfor %}</div></div>{% endif %}
 </div>
-<dialog id="details"><div class="mh"><strong id="mt">Movement</strong><button class="close" onclick="details.close()">×</button></div><div class="mb"><div class="grid2" id="dg"></div><table><thead><tr><th>Stop</th><th>Postcode</th><th>Required</th><th>Completed</th></tr></thead><tbody id="rb"></tbody></table></div></dialog>
+<dialog id="details"><div class="mh"><strong id="mt">Movement</strong><button class="close" onclick="details.close()">×</button></div><div class="mb"><div class="grid2" id="dg"></div><div class="movement-state"><label><input type="checkbox" id="hide-movement"> Hide from presentation</label><button type="button" onclick="saveMovementState()">Save</button></div><table><thead><tr><th>Stop</th><th>Postcode</th><th>Required</th><th>Completed</th></tr></thead><tbody id="rb"></tbody></table></div></dialog>
 <script>
 let currentMovement=null;
 function fmt(v){if(v===null||v===undefined||v==="")return"—";if(typeof v==="string"&&v.includes("T")){const d=new Date(v);if(!isNaN(d))return d.toLocaleString("en-GB",{hour12:false});}return v;}
