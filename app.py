@@ -2,14 +2,18 @@ from __future__ import annotations
 
 import os
 import re
+import hmac
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, render_template, request, redirect, url_for
 import psycopg
 from psycopg.rows import dict_row
 
+from board_auth import init_board_auth, BOARD_AUTH_MODE
+
 app = Flask(__name__)
+init_board_auth(app)
 
 DB_NAME = os.getenv("DB_NAME", "warehouse")
 DB_USER = os.getenv("DB_USER", "warehouse_api")
@@ -48,9 +52,14 @@ def db_connect(*, row_factory=None):
 
 
 def authorise(req):
-    if not INGEST_TOKEN:
-        return True
-    return req.headers.get("X-Ingest-Token", "") == INGEST_TOKEN
+    # External ingestion is exclusive to the staff deployment and fails closed.
+    supplied = req.headers.get("X-Ingest-Token", "")
+    return (
+        BOARD_AUTH_MODE == "USER"
+        and bool(INGEST_TOKEN)
+        and bool(supplied)
+        and hmac.compare_digest(supplied, INGEST_TOKEN)
+    )
 
 
 def parse_dt(value: str | None):
@@ -192,6 +201,11 @@ def derive_movement_type(stops: list[dict], index: int) -> str:
     if prev_external:
         return "INBOUND"
     return "UNKNOWN"
+
+
+@app.get("/")
+def home():
+    return redirect(url_for("board"))
 
 
 @app.get("/health")

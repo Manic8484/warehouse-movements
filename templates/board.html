@@ -143,5 +143,9 @@ async function saveMovementState(){
   }
   window.location.reload();
 }
+// Refresh the board periodically without interrupting an open movement modal.
+setInterval(() => {
+  if (!document.getElementById('details').open) window.location.reload();
+}, 300000);
 </script>
 </body></html>
