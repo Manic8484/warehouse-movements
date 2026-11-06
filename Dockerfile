@@ -4,7 +4,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the application and Flask templates into the container.
-COPY app.py board_auth.py device_sessions.py .
+COPY app.py board_auth.py device_sessions.py ./
 COPY templates ./templates
 
 CMD exec gunicorn --bind :$PORT --workers 2 --threads 4 --timeout 0 app:app
