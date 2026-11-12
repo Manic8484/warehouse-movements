@@ -188,13 +188,9 @@ def init_board_auth(app):
     @app.before_request
     def protect():
         g.board_user = None
-        # Machine feeds retain their existing token authentication; don't
-        # change feed routing during this first authentication rollout.
-        # Only the staff service can accept the separately token-protected email feed.
-        if request.path == '/warehouse-movement-email' and request.method == 'POST':
-            if BOARD_AUTH_MODE == 'DEVICE':
-                return jsonify(error='Ingestion disabled on device service'), 404
-            return None
+        # The V3 mirror board has no independent Freedom feed in either mode.
+        if request.path == '/warehouse-movement-email':
+            return jsonify(error='Legacy ingestion unavailable on V3'), 404
         if request.path == '/health' and request.method == 'GET':
             return None
         # Endpoints are exclusive to the configured deployment authentication mode.
