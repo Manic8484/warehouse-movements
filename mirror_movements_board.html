@@ -1,0 +1,156 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Warehouse Movements</title>
+<style>
+body{margin:0;font-family:Arial,sans-serif;background:#f3f4f6;color:#17202a}
+header{display:flex;justify-content:space-between;align-items:center;background:white;padding:14px 18px;border-bottom:1px solid #ddd;position:sticky;top:0;z-index:5}
+h1{margin:0;font-size:24px}.controls a{margin-left:6px;padding:7px 10px;border:1px solid #ccc;border-radius:6px;text-decoration:none;color:#222;background:white}
+.wrap{padding:18px}.legend{display:flex;gap:18px;margin-bottom:12px;font-size:13px}.sw{display:inline-block;width:14px;height:14px;border-radius:3px;margin-right:5px;vertical-align:-2px}
+.timeline{position:relative;height:560px;background:white;border:1px solid #d8dde5;border-radius:10px;overflow:hidden}
+.grid{position:absolute;top:0;bottom:0;border-left:1px solid #e4e7ec}.tick{position:absolute;top:4px;transform:translateX(-50%);font-size:11px;color:#667085}
+.card{position:absolute;min-width:140px;min-height:62px;padding:8px 10px;box-shadow:0 1px 4px rgba(0,0,0,.16);cursor:pointer;border:1px solid rgba(0,0,0,.08)}
+.card strong{display:block;font-size:18px}.card small{display:block;margin-top:3px;font-size:12px}
+.outbound{background:#1976D2;color:white;border-radius:8px 0 0 8px}
+.outbound:after,.complete.outbound:after,.mixed:after{content:"";position:absolute;top:-1px;right:-24px;width:0;height:0;border-top:31px solid transparent;border-bottom:31px solid transparent;border-left:24px solid #1976D2}
+.inbound{background:#F59E0B;color:#111827;border-radius:0 8px 8px 0}
+.inbound:before,.complete.inbound:before{content:"";position:absolute;top:-1px;left:-24px;width:0;height:0;border-top:31px solid transparent;border-bottom:31px solid transparent;border-right:24px solid #F59E0B}
+.mixed{background:#7C3AED;color:white}
+.complete{background:#16A34A;color:white}
+.complete.outbound:after{border-left-color:#16A34A}
+.complete.inbound:before{border-right-color:#16A34A}
+.estimated,.tba-time{border-style:dashed}
+.confidence{font-size:10px;font-weight:bold;letter-spacing:.04em;text-transform:uppercase;opacity:.7}
+dialog{border:0;border-radius:10px;width:min(760px,90vw);padding:0}.mh{display:flex;justify-content:space-between;padding:14px 16px;border-bottom:1px solid #eee}.mb{padding:16px}.close{border:0;background:none;font-size:24px;cursor:pointer}
+.grid2{display:grid;grid-template-columns:170px 1fr;gap:7px 12px;font-size:14px}.lab{font-weight:bold;color:#475467}
+table{width:100%;border-collapse:collapse;margin-top:16px;font-size:13px}th,td{padding:6px;border-bottom:1px solid #eee;text-align:left}.wh{font-weight:bold}
+
+.route-line{position:absolute;height:4px;background:#F59E0B;border-radius:3px;z-index:1}
+.route-line.complete-route{background:#16A34A}
+.route-marker{position:absolute;width:16px;height:16px;border-radius:50%;background:#F59E0B;border:2px solid white;box-shadow:0 0 0 2px #F59E0B;transform:translate(-50%,-50%);z-index:3}
+.route-marker.complete-route{background:#16A34A;box-shadow:0 0 0 2px #16A34A}
+.route-postcode{position:absolute;transform:translate(-50%,-150%);font-size:12px;font-weight:bold;background:white;padding:2px 5px;border-radius:4px;white-space:nowrap;z-index:4;box-shadow:0 1px 3px rgba(0,0,0,.15)}
+.card{z-index:5}
+
+.controls input[type="date"]{margin-left:8px;padding:7px 10px;border:1px solid #cfd5dc;border-radius:6px;background:white;color:#17202a;font:inherit}
+.lookahead{margin-top:18px;background:white;border:1px solid #d8dde5;border-radius:10px;padding:12px}
+.lookahead-title{font-size:15px;font-weight:bold;margin-bottom:10px}
+.lookahead-days{display:grid;grid-template-columns:repeat(10,minmax(90px,1fr));gap:8px}
+.day-box{display:block;text-decoration:none;color:#17202a;background:white;border:2px solid #d8dde5;border-radius:8px;padding:10px 8px;text-align:center;min-height:70px}
+.day-box.has-movements{background:#2563EB;color:white;border-color:#1D4ED8}
+.day-box.selected{outline:4px solid #111827;outline-offset:1px}
+.day-box.today{box-shadow:inset 0 0 0 2px #16A34A}
+.day-name{font-size:12px;font-weight:bold;text-transform:uppercase}
+.day-date{font-size:18px;font-weight:bold;margin-top:3px}
+.day-count{font-size:12px;margin-top:4px}
+@media(max-width:1200px){.lookahead-days{grid-template-columns:repeat(5,1fr)}}
+
+.movement-state{display:flex;align-items:center;gap:12px;margin:14px 0;padding:10px;border:1px solid #e4e7ec;border-radius:8px;background:#f8fafc}
+.movement-state label{display:flex;align-items:center;gap:7px;font-weight:bold}
+.movement-state input{width:18px;height:18px}
+.movement-state button{margin-left:auto;padding:7px 12px;border:0;border-radius:6px;background:#111827;color:#fff;font-weight:bold;cursor:pointer}
+.controls select{padding:7px 10px;border-radius:6px;border:1px solid #ccc;background:white;font:inherit}
+.tba{margin-top:15px}.tba-row{display:flex;gap:12px;flex-wrap:wrap}
+.tba-card{position:relative;cursor:pointer;padding:12px;min-width:160px;border-radius:8px}
+.tba-card strong{display:block}.tba-card:after,.tba-card:before{display:none}
+.card.is-hidden,.tba-card.is-hidden{opacity:.45;outline:2px dashed #475467}
+</style>
+</head>
+<body>
+<header>
+  <h1>{{ warehouse_name }} Movements — {{ selected_date.strftime('%d %b %Y') }}</h1>
+  <div class="controls">
+    <select aria-label="Select warehouse" id="warehouse-select" onchange="window.location='/board?warehouse='+encodeURIComponent(this.value)+'&date={{ selected_date.isoformat() }}'">
+    {% for loc in locations %}<option value="{{ loc.warehouse_code }}" {% if loc.warehouse_code == warehouse_code %}selected{% endif %}>{{ loc.display_name }}</option>{% endfor %}
+    </select>
+    <label style="margin-left:10px"><input type="checkbox" id="show-hidden" {% if show_hidden %}checked{% endif %} onchange="window.location='/board?warehouse={{ warehouse_code }}&date={{ selected_date.isoformat() }}&show_hidden='+(this.checked?'1':'0')">Show hidden</label>
+    <a href="/board?warehouse={{ warehouse_code }}&date={{ prev_date.isoformat() }}">Previous</a>
+    <a href="/board?warehouse={{ warehouse_code }}">Today</a>
+    <a href="/board?warehouse={{ warehouse_code }}&date={{ next_date.isoformat() }}">Next</a>
+    <input id="date-picker" type="date" value="{{ selected_date.isoformat() }}"
+           onchange="window.location='/board?warehouse={{ warehouse_code }}&date='+this.value">
+  </div>
+</header>
+<div class="wrap">
+  <div class="legend"><span><i class="sw" style="background:#1976D2"></i>Collection from warehouse →</span><span>← <i class="sw" style="background:#F59E0B"></i>Delivery to warehouse</span><span><i class="sw" style="background:#16A34A"></i>Completed</span><span>Dashed = estimated (pickup-based) time</span></div>
+  <div class="timeline">
+    {% for t in ticks %}<div class="grid" style="left:{{ t.left_pct }}%"></div><div class="tick" style="left:{{ t.left_pct }}%">{{ t.label }}</div>{% endfor %}
+    {% for item in timed_items %}
+      {% set top = 76 + item.lane * 94 %}
+
+      {% if item.movement_type in ('INBOUND', 'BOTH') and item.inbound_markers and item.inbound_markers[0].left_pct < item.left_pct %}
+        {% set first_marker = item.inbound_markers[0] %}
+        <div class="route-line {% if item.state_class == 'complete' %}complete-route{% endif %}"
+             style="left:{{ first_marker.left_pct }}%;width:{{ [0, item.left_pct - first_marker.left_pct] | max }}%;top:{{ top + 31 }}px"></div>
+
+        {% for marker in item.inbound_markers %}
+          <div class="route-marker {% if item.state_class == 'complete' %}complete-route{% endif %}"
+               style="left:{{ marker.left_pct }}%;top:{{ top + 33 }}px"></div>
+          <div class="route-postcode"
+               style="left:{{ marker.left_pct }}%;top:{{ top + 33 }}px">{{ marker.postcode }}</div>
+        {% endfor %}
+      {% endif %}
+
+      <div class="card {{ item.direction_class }} {{ item.state_class }} {% if item.presentation_hidden %}is-hidden{% endif %} {% if item.time_confidence == 'ESTIMATED' %}estimated{% elif item.time_confidence == 'TBA' %}tba-time{% endif %}"
+           style="left:{{ item.left_pct }}%;width:{{ item.width_pct }}%;top:{{ top }}px"
+           onclick='openDetails({{ item|tojson }})'>
+        <strong>{{ item.vehicle }}</strong>
+        <span>{{ item.account }}</span>
+        {% if item.time_confidence != 'ACTUAL' %}<small class="confidence">{{ item.time_confidence }}</small>{% endif %}
+      </div>
+    {% endfor %}
+  </div>
+
+  <div class="lookahead">
+    <div class="lookahead-title">Next 10 days</div>
+    <div class="lookahead-days">
+      {% for d in lookahead_days %}
+        <a class="day-box {% if d.count > 0 %}has-movements{% endif %} {% if d.selected %}selected{% endif %} {% if d.today %}today{% endif %}"
+           href="/board?warehouse={{ warehouse_code }}&date={{ d.date.isoformat() }}">
+          <div class="day-name">{{ d.date.strftime('%a') }}</div>
+          <div class="day-date">{{ d.date.strftime('%d %b') }}</div>
+          <div class="day-count">
+            {% if d.count > 0 %}
+              {{ d.count }} movement{% if d.count != 1 %}s{% endif %}
+            {% else %}
+              No movements
+            {% endif %}
+          </div>
+        </a>
+      {% endfor %}
+    </div>
+  </div>
+
+  {% if tba_items %}<div class="tba"><h2>Time TBA</h2><div class="tba-row">{% for item in tba_items %}<div class="tba-card {{ item.direction_class }} {{ item.state_class }} {% if item.presentation_hidden %}is-hidden{% endif %}" onclick='openDetails({{ item|tojson }})'><strong>{{ item.vehicle }}</strong><span>{{ item.account }}</span></div>{% endfor %}</div></div>{% endif %}
+</div>
+<dialog id="details"><div class="mh"><strong id="mt">Movement</strong><button class="close" onclick="details.close()">×</button></div><div class="mb"><div class="grid2" id="dg"></div><div class="movement-state"><label><input type="checkbox" id="hide-movement"> Hide from presentation</label><button type="button" onclick="saveMovementState()">Save</button></div><table><thead><tr><th>Stop</th><th>Postcode</th><th>Required</th><th>Completed</th></tr></thead><tbody id="rb"></tbody></table></div></dialog>
+<script>
+let currentMovement=null;
+function fmt(v){if(v===null||v===undefined||v==="")return"—";if(typeof v==="string"&&v.includes("T")){const d=new Date(v);if(!isNaN(d))return d.toLocaleString("en-GB",{hour12:false});}return v;}
+function openDetails(v){
+  currentMovement=v;
+  document.getElementById("hide-movement").checked=!!v.presentation_hidden;
+  mt.textContent=(v.movement_type==="OUTBOUND"?"Collection from warehouse":v.movement_type==="INBOUND"?"Delivery to warehouse":v.movement_type==="BOTH"?"Warehouse deliver / collect":"Warehouse movement")+" — "+v.vehicle;
+  const rows=[["Job",v.job_ref],["Driver",v.agent_callsign],["Vehicle",v.vehicle],["Account",v.account],["Goods",v.goods],["Warehouse Stop ID",v.warehouse_stop_id],["Booked",v.booked_at],["Warehouse Required",v.warehouse_required_from],["Completed",v.completed_at]];
+  dg.innerHTML=""; for(const [l,vv] of rows){const a=document.createElement("div");a.className="lab";a.textContent=l;const b=document.createElement("div");b.textContent=fmt(vv);dg.append(a,b);}
+  rb.innerHTML=""; for(const s of v.route){const tr=document.createElement("tr");if(s.is_warehouse)tr.className="wh";for(const x of [s.drop_order,s.postcode,fmt(s.required_from),fmt(s.date_completed)]){const td=document.createElement("td");td.textContent=x??"—";tr.appendChild(td);}rb.appendChild(tr);}
+  details.showModal();
+}
+
+async function saveMovementState(){
+  if(!currentMovement) return;
+  const response=await fetch("/warehouse-movements/"+encodeURIComponent(currentMovement.warehouse_code)+"/"+encodeURIComponent(currentMovement.warehouse_stop_id)+"/presentation-state",{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({hidden:document.getElementById("hide-movement").checked})
+  });
+  const data=await response.json();
+  if(!response.ok || !data.ok){
+    alert(data.error || "Could not save presentation state");
+    return;
+  }
+  window.location.href="/board?warehouse={{ warehouse_code }}&date={{ selected_date.isoformat() }}&show_hidden=1";
+}
+</script>
+</body></html>

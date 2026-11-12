@@ -55,7 +55,11 @@ def _selected_rows(cur, code, start, end, show_hidden=False):
     No timestamps are changed or written back to Freedom.
     """
     cur.execute("""
-        SELECT m.*, pickup.required_from AS pickup_required_from
+        SELECT m.*, pickup.required_from AS pickup_required_from,
+               CASE WHEN m.movement_type IN ('INBOUND', 'BOTH')
+                         AND pickup.required_from IS NOT NULL
+                    THEN pickup.required_from + INTERVAL '2 hours'
+                    ELSE pickup.required_from END AS estimated_anchor
         FROM public.v_warehouse_movements_mirror AS m
         LEFT JOIN LATERAL (
             SELECT fs.required_from
@@ -70,11 +74,20 @@ def _selected_rows(cur, code, start, end, show_hidden=False):
           AND (
             (m.warehouse_required_from >= %s AND m.warehouse_required_from < %s)
             OR (m.warehouse_required_from IS NULL
-                AND COALESCE(pickup.required_from, m.booked_at + INTERVAL '2 hours') >= %s
-                AND COALESCE(pickup.required_from, m.booked_at + INTERVAL '2 hours') < %s)
+                AND COALESCE(CASE WHEN m.movement_type IN ('INBOUND', 'BOTH')
+                                   THEN pickup.required_from + INTERVAL '2 hours'
+                                   ELSE pickup.required_from END,
+                             m.booked_at + INTERVAL '2 hours') >= %s
+                AND COALESCE(CASE WHEN m.movement_type IN ('INBOUND', 'BOTH')
+                                   THEN pickup.required_from + INTERVAL '2 hours'
+                                   ELSE pickup.required_from END,
+                             m.booked_at + INTERVAL '2 hours') < %s)
             OR (m.completed_at >= %s AND m.completed_at < %s)
           )
-        ORDER BY COALESCE(m.warehouse_required_from, pickup.required_from,
+        ORDER BY COALESCE(m.warehouse_required_from,
+                          CASE WHEN m.movement_type IN ('INBOUND', 'BOTH')
+                               THEN pickup.required_from + INTERVAL '2 hours'
+                               ELSE pickup.required_from END,
                           m.booked_at + INTERVAL '2 hours', m.completed_at), m.warehouse_stop_id
     """, (code, show_hidden, start, end, start, end, start, end))
     return [dict(x) for x in cur.fetchall()]
@@ -109,17 +122,19 @@ def board():
         wh_index=next((i for i,s in enumerate(route) if s['stop_id']==r['warehouse_stop_id']),None)
         prev_external = [s for s in route[:wh_index] if not s['is_warehouse']] if wh_index is not None else []
         markers=[]
-        if r['movement_type'] in ('INBOUND','BOTH'):
-            for s in prev_external[-2:]:
-                if s['required_from']:
-                    markers.append({'postcode':s['postcode'] or '', 'time':s['required_from'].isoformat()})
+        if r['movement_type'] in ('INBOUND', 'BOTH') and prev_external:
+            # The marker must be the first collection stop, not merely one of
+            # the last two preceding stops. It identifies the pickup postcode.
+            first_stop = prev_external[0]
+            if first_stop['required_from']:
+                markers.append({'postcode':first_stop['postcode'] or '',
+                                'time':first_stop['required_from'].isoformat()})
         display_dt = r['warehouse_required_from']
         confidence = 'ACTUAL' if display_dt else 'ESTIMATED'
         if display_dt is None:
-            # Preserve the familiar presentation: when there is no warehouse
-            # appointment, place the card at the *pickup's* required time.
-            # This is a timeline anchor, NOT a predicted warehouse ETA.
-            display_dt = r.get('pickup_required_from')
+            # Inbound card is offset two hours from the pickup dot, allowing
+            # the familiar visual line for loading/travel; NOT a predicted ETA.
+            display_dt = r.get('estimated_anchor')
             if display_dt is None and r['booked_at'] is not None:
                 # Legacy fallback for jobs without any pickup appointment.
                 display_dt = r['booked_at'] + timedelta(hours=2)
@@ -161,7 +176,7 @@ def board():
     ticks=[{'label':f'{h:02d}:00','left_pct':h/24*100} for h in range(0,25,2)]
     counts={today+timedelta(days=i):0 for i in range(10)}
     for r in look_rows:
-        dt=(r['warehouse_required_from'] or r.get('pickup_required_from') or
+        dt=(r['warehouse_required_from'] or r.get('estimated_anchor') or
             (r['booked_at'] + timedelta(hours=2) if r['booked_at'] else None) or r['completed_at'])
         if dt:
             d=dt.astimezone(tz).date()
