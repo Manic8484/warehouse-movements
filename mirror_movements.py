@@ -48,16 +48,35 @@ def _within(dt, start, end):
 
 
 def _selected_rows(cur, code, start, end, show_hidden=False):
-    # Time selection is based on genuine warehouse appointment time; booked_at is
-    # only used as a fallback to identify today's otherwise unscheduled movements.
-    cur.execute('''SELECT * FROM public.v_warehouse_movements_mirror
-                   WHERE warehouse_code=%s AND cancelled_at IS NULL
-                     AND (%s OR NOT presentation_hidden)
-                     AND ((warehouse_required_from >= %s AND warehouse_required_from < %s)
-                       OR (warehouse_required_from IS NULL AND booked_at >= %s AND booked_at < %s)
-                       OR (completed_at >= %s AND completed_at < %s))
-                   ORDER BY COALESCE(warehouse_required_from,booked_at,completed_at),warehouse_stop_id''',
-                (code,show_hidden,start,end,start,end,start,end))
+    """Use warehouse time, then the job pickup time, then legacy booking fallback.
+
+    A timed pickup can be on a different calendar date from when a job was booked.
+    Include that movement on the date of its actual pickup, not the booking date.
+    No timestamps are changed or written back to Freedom.
+    """
+    cur.execute("""
+        SELECT m.*, pickup.required_from AS pickup_required_from
+        FROM public.v_warehouse_movements_mirror AS m
+        LEFT JOIN LATERAL (
+            SELECT fs.required_from
+            FROM public.freedom_stops AS fs
+            WHERE fs.job_ref = m.job_ref
+            ORDER BY fs.drop_order NULLS LAST, fs.stop_id
+            LIMIT 1
+        ) AS pickup ON TRUE
+        WHERE m.warehouse_code = %s
+          AND m.cancelled_at IS NULL
+          AND (%s OR NOT m.presentation_hidden)
+          AND (
+            (m.warehouse_required_from >= %s AND m.warehouse_required_from < %s)
+            OR (m.warehouse_required_from IS NULL
+                AND COALESCE(pickup.required_from, m.booked_at + INTERVAL '2 hours') >= %s
+                AND COALESCE(pickup.required_from, m.booked_at + INTERVAL '2 hours') < %s)
+            OR (m.completed_at >= %s AND m.completed_at < %s)
+          )
+        ORDER BY COALESCE(m.warehouse_required_from, pickup.required_from,
+                          m.booked_at + INTERVAL '2 hours', m.completed_at), m.warehouse_stop_id
+    """, (code, show_hidden, start, end, start, end, start, end))
     return [dict(x) for x in cur.fetchall()]
 
 
@@ -94,9 +113,18 @@ def board():
             for s in prev_external[-2:]:
                 if s['required_from']:
                     markers.append({'postcode':s['postcode'] or '', 'time':s['required_from'].isoformat()})
-        display_dt=r['warehouse_required_from']
-        confidence='ACTUAL' if display_dt else 'TBA'
-        # No invented warehouse ETA: unscheduled bookings appear in the TBA area.
+        display_dt = r['warehouse_required_from']
+        confidence = 'ACTUAL' if display_dt else 'ESTIMATED'
+        if display_dt is None:
+            # Preserve the familiar presentation: when there is no warehouse
+            # appointment, place the card at the *pickup's* required time.
+            # This is a timeline anchor, NOT a predicted warehouse ETA.
+            display_dt = r.get('pickup_required_from')
+            if display_dt is None and r['booked_at'] is not None:
+                # Legacy fallback for jobs without any pickup appointment.
+                display_dt = r['booked_at'] + timedelta(hours=2)
+            if display_dt is None:
+                confidence = 'TBA'
         modal_route=[{'drop_order':s['drop_order'],'drop_type':s['drop_type'],'postcode':s['postcode'],
                       'required_from':s['required_from'].isoformat() if s['required_from'] else None,
                       'required_to':s['required_to'].isoformat() if s['required_to'] else None,
@@ -133,7 +161,8 @@ def board():
     ticks=[{'label':f'{h:02d}:00','left_pct':h/24*100} for h in range(0,25,2)]
     counts={today+timedelta(days=i):0 for i in range(10)}
     for r in look_rows:
-        dt=r['warehouse_required_from'] or r['booked_at'] or r['completed_at']
+        dt=(r['warehouse_required_from'] or r.get('pickup_required_from') or
+            (r['booked_at'] + timedelta(hours=2) if r['booked_at'] else None) or r['completed_at'])
         if dt:
             d=dt.astimezone(tz).date()
             if d in counts:counts[d]+=1

@@ -73,7 +73,7 @@ table{width:100%;border-collapse:collapse;margin-top:16px;font-size:13px}th,td{p
   </div>
 </header>
 <div class="wrap">
-  <div class="legend"><span><i class="sw" style="background:#1976D2"></i>Collection from warehouse →</span><span>← <i class="sw" style="background:#F59E0B"></i>Delivery to warehouse</span><span><i class="sw" style="background:#16A34A"></i>Completed</span><span>Dashed = estimated / TBA time</span></div>
+  <div class="legend"><span><i class="sw" style="background:#1976D2"></i>Collection from warehouse →</span><span>← <i class="sw" style="background:#F59E0B"></i>Delivery to warehouse</span><span><i class="sw" style="background:#16A34A"></i>Completed</span><span>Dashed = estimated (pickup-based) time</span></div>
   <div class="timeline">
     {% for t in ticks %}<div class="grid" style="left:{{ t.left_pct }}%"></div><div class="tick" style="left:{{ t.left_pct }}%">{{ t.label }}</div>{% endfor %}
     {% for item in timed_items %}
@@ -82,7 +82,7 @@ table{width:100%;border-collapse:collapse;margin-top:16px;font-size:13px}th,td{p
       {% if item.movement_type == 'INBOUND' and item.inbound_markers %}
         {% set first_marker = item.inbound_markers[0] %}
         <div class="route-line {% if item.state_class == 'complete' %}complete-route{% endif %}"
-             style="left:{{ first_marker.left_pct }}%;width:{{ item.left_pct - first_marker.left_pct }}%;top:{{ top + 31 }}px"></div>
+             style="left:{{ first_marker.left_pct }}%;width:{{ [0, item.left_pct - first_marker.left_pct] | max }}%;top:{{ top + 31 }}px"></div>
 
         {% for marker in item.inbound_markers %}
           <div class="route-marker {% if item.state_class == 'complete' %}complete-route{% endif %}"
